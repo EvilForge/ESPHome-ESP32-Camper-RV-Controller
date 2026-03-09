@@ -1,0 +1,493 @@
+esphome:
+  name: o-camper
+  friendly_name: o-camper
+  on_boot:
+    priority: -100
+    then:
+      - output.turn_on: sensor_power
+      - delay: 2s        # allow sensors to warm up
+
+esp32:
+  board: wemos_d1_mini32
+  variant: ESP32
+  framework:
+    type: esp-idf
+
+# --------------------------------------------------
+# Logging / API / OTA
+# --------------------------------------------------
+logger:
+  level: DEBUG
+
+api:
+  encryption:
+    key: "REDACTED"
+
+ota:
+  - platform: esphome
+    password: "REDACTED"
+
+# --------------------------------------------------
+# Wi-Fi / Captive Portal
+# --------------------------------------------------
+wifi:
+  networks:
+    - ssid: !secret wifi_ssid
+      password: !secret wifi_password
+  power_save_mode: LIGHT
+
+  ap:
+    ssid: "O-Camper Fallback Hotspot"
+    password: "REDACTED"
+
+captive_portal:
+
+# --------------------------------------------------
+# GPIO / Resources / Bus / Variables
+# --------------------------------------------------
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+  scan: true
+
+one_wire:
+  - platform: gpio
+    pin: GPIO27
+
+select:
+  - platform: template
+    name: "Mode"
+    id: mode_selector
+    options:
+      - "Occupied"
+      - "Secured"
+      - "Sleeping"
+      - "Traveling"
+    initial_option: "Secured"
+    optimistic: true
+    web_server:
+      sorting_group_id: controls
+      sorting_weight: 20
+
+# --------------------------------------------------
+# Outputs / Lights / Switches
+# --------------------------------------------------
+fan:
+  - platform: speed
+    output: fan_pwm
+    name: "Inside Fan"
+    id: inside_fan
+    restore_mode: ALWAYS_OFF
+    speed_count: 100
+    web_server:
+      sorting_group_id: controls
+      sorting_weight: 12
+
+light:
+  - platform: monochromatic
+    name: "Area Light"
+    id: area_light
+    output: area_light_pwm
+    default_transition_length: 0.2s
+    web_server:
+      sorting_group_id: controls
+      sorting_weight: 13
+
+output:
+  - platform: gpio
+    id: sensor_power
+    pin: GPIO14
+  - platform: ledc
+    id: fan_pwm
+    pin: GPIO25
+    frequency: 19531Hz
+  - platform: ledc
+    id: area_light_pwm
+    pin: GPIO17
+    frequency: 1000 Hz
+  - platform: gpio
+    id: panel_fan
+    pin: GPIO26
+
+# --------------------------------------------------
+# Sensors
+# 
+# [17:59:33.343][C][gpio.one_wire:088]:     0x6a0b24xx8156e628 (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:     0xfb0b2513b6xx7628 (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:     0xa60b2xx3d413ee28 (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:     0xcd0b2373cxx10528 (DS18B20)
+# --------------------------------------------------
+sensor:
+  - platform: aht10
+    variant: AHT20
+    update_interval: 30s
+    temperature:
+      name: "Panel Temperature"
+      id: panel_temp
+      unit_of_measurement: "°F"
+      filters:
+        - lambda: return x * 9.0 / 5.0 + 32.0;
+      web_server:
+        sorting_group_id: environment
+        sorting_weight: 13
+    humidity:
+      name: "Panel Humidity"
+      id: panel_humid
+      web_server:
+        sorting_group_id: environment
+        sorting_weight: 12
+  - platform: dallas_temp
+    name: "Outside Temp"
+    id: outside_temp
+    address: 0xcd0b23xxcf410528
+    update_interval: 30s
+    unit_of_measurement: "°F"
+    filters:
+      - lambda: return x * 9.0 / 5.0 + 32.0;
+    web_server:
+      sorting_group_id: environment
+      sorting_weight: 15
+  - platform: dallas_temp
+    name: "Inside Temp"
+    id: inside_temp
+    address: 0xa6xx2373d413ee28
+    update_interval: 30s
+    unit_of_measurement: "°F"
+    filters:
+      - lambda: return x * 9.0 / 5.0 + 32.0;
+    web_server:
+      sorting_group_id: environment
+      sorting_weight: 10
+  - platform: template
+    name: "Rear Door State"
+    id: rear_door_template
+    update_interval: 30s
+    internal: True
+    lambda: |- 
+      if (id(rear_door).state) {
+        return 1.0;
+      } else {
+        return 0.0;
+      }
+  - platform: template
+    name: "Side Door State"
+    id: side_door_template
+    update_interval: 30s
+    internal: True
+    lambda: |- 
+      if (id(side_door).state) {
+        return 1.0;
+      } else {
+        return 0.0;
+      }
+  - platform: template
+    name: "Driver Window State"
+    id: d_window_template
+    update_interval: 30s
+    internal: True
+    lambda: |- 
+      if (id(d_window).state) {
+        return 1.0;
+      } else {
+        return 0.0;
+      }
+  - platform: template
+    name: "Pass Window State"
+    id: p_window_template
+    update_interval: 30s
+    internal: True
+    lambda: |- 
+      if (id(p_window).state) {
+        return 1.0;
+      } else {
+        return 0.0;
+      }
+  - platform: template
+    name: "Inside Fan State"
+    id: inside_fan_template
+    update_interval: 30s
+    internal: True
+    lambda: |-
+      float current_fan = id(inside_fan).speed * 100;
+      return current_fan;
+  - platform: template
+    name: "Area Light State"
+    id: area_light_template
+    update_interval: 30s
+    internal: True
+    lambda: |-
+      float current_light = id(area_light).current_values.get_brightness() * 100;
+      return current_light;
+  - platform: template
+    name: "Camper Mode State"
+    id: mode_template
+    update_interval: 30s
+    internal: True
+    lambda: |- 
+      std::string mode = id(mode_selector).current_option();
+      if (mode == "Occupied") {
+        return 1;
+      } else if (mode == "Secured") {
+        return 2;
+      } else if (mode == "Sleeping") {
+        return 3;
+      } else if (mode == "Traveling") {
+        return 4;
+      } else {
+        return 2;
+      }
+  - platform: adc
+    pin: GPIO36
+    id: appliance_voltage_raw
+    name: "Camera Voltage"
+    attenuation: 12db
+    update_interval: 10s
+    filters:
+      - multiply: 9.2
+      # Optional smoothing
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+  - platform: adc
+    pin: GPIO39
+    id: main_power_voltage_raw
+    name: "Main Power Voltage"
+    attenuation: 12db
+    update_interval: 10s
+    filters:
+      - multiply: 9.2
+      - sliding_window_moving_average:
+          window_size: 10
+          send_every: 1
+  - platform: packet_transport
+    transport_id: ptrans_screen_to_camper
+    provider: o-camperscreen
+    id: remote_command_int
+    remote_id: command_int
+    name: "Screen Command"
+    internal: True
+    on_value:
+      - lambda: |-
+          int command = (int)x;
+          // ESP_LOGD("packet_transport", "Received command: %d", command);
+          // Handle the command as needed, e.g. change mode or toggle light
+          float current_light = id(area_light).current_values.get_brightness();
+          float current_fan = id(inside_fan).speed;
+
+          if (command == 1) {
+            ESP_LOGD("screen_cmd", "Fan UP.");
+            auto call = id(inside_fan).turn_on();
+            float new_fan = current_fan + 10;
+            if (new_fan > 100) new_fan = 100;
+            call.set_speed(new_fan);
+            call.perform();
+          } else if (command == 2) {
+            ESP_LOGD("screen_cmd", "Fan DOWN.");
+            float new_fan = current_fan - 10;
+            if (new_fan > 0) {
+              auto call = id(inside_fan).turn_on();
+              call.set_speed(new_fan);
+              call.perform();
+            }
+            if (new_fan <= 0) {
+              new_fan = 0;
+              auto call = id(inside_fan).turn_off();
+              call.set_speed(new_fan);
+              call.perform();
+            }
+          } else if (command == 3) {
+            ESP_LOGD("screen_cmd", "Light INCREASE.");
+            float new_light = current_light + 0.1f;
+            auto call = id(area_light).turn_on();
+            if (new_light > 1.0f) new_light = 1.0f;
+            call.set_brightness(new_light);
+            call.perform();
+          } else if (command == 4) {
+            ESP_LOGD("screen_cmd", "Light DECREASE.");
+            float new_light = current_light - 0.1f;
+            if (new_light > 0.0f) {
+              auto call = id(area_light).turn_on();
+              call.set_brightness(new_light);
+              call.perform();
+            }
+            if (new_light <= 0.0f) {
+              auto call = id(area_light).turn_on();
+              new_light = 0.0001f;
+              call.set_brightness(new_light);
+              call.perform();
+            }
+          } else if (command == 5) {
+            ESP_LOGD("screen_cmd", "Mode CHANGE.");
+            auto call = id(mode_selector).make_call();
+            call.select_next(true);
+            call.perform();
+          } else {
+            // ESP_LOGD("screen_cmd", "Commanded: Unknown command or No Command.");
+          }
+
+binary_sensor:
+  - platform: gpio
+    name: "Door Sensor"
+    id: side_door
+    pin:
+      number: GPIO32
+      inverted: True
+      # allow_other_uses: True
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    web_server:
+      sorting_group_id: security
+      sorting_weight: 10
+    internal: False
+    on_state:
+      then:
+        - lambda: |-
+            id(side_door_template).publish_state(x ? 1.0f : 0.0f);
+  - platform: gpio
+    name: "D Window Sensor"
+    id: d_window
+    pin:
+      number: GPIO34
+      inverted: True
+      # allow_other_uses: True
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    web_server:
+      sorting_group_id: security
+      sorting_weight: 15
+    internal: False
+    on_state:
+      then:
+        - lambda: |-
+            id(d_window_template).publish_state(x ? 1.0f : 0.0f);
+  - platform: gpio
+    name: "P Window Sensor"
+    id: p_window
+    pin:
+      number: GPIO35
+      inverted: True
+      # allow_other_uses: True
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    web_server:
+      sorting_group_id: security
+      sorting_weight: 16
+    internal: False
+    on_state:
+      then:
+        - lambda: |-
+            id(p_window_template).publish_state(x ? 1.0f : 0.0f);
+  - platform: gpio
+    name: "Rear Door Sensor"
+    id: rear_door
+    pin:
+      number: GPIO33
+      inverted: True
+      # allow_other_uses: True
+    filters:
+      - delayed_on: 20ms
+      - delayed_off: 20ms
+    web_server:
+      sorting_group_id: security
+      sorting_weight: 11
+    internal: False
+    on_state:
+      then:
+        - lambda: |-
+            id(rear_door_template).publish_state(x ? 1.0f : 0.0f);
+  - platform: template
+    name: "Camera Powered"
+    lambda: |-
+      return id(appliance_voltage_raw).state > 10.0;  // threshold in volts
+
+# --------------------------------------------------
+# Web Server
+# --------------------------------------------------
+web_server:
+  port: 80
+  version: 3
+  include_internal: False
+  local: False
+  log: True
+  ota: False
+  auth:
+    username: camper
+    password: Admin.rbush2
+  sorting_groups:
+    - id: environment
+      name: "Environment"
+      sorting_weight: 10
+    - id: controls
+      name: "Controls"
+      sorting_weight: 20
+    - id: security
+      name: "Security"
+      sorting_weight: 30
+
+# --------------------------------------------------
+# Monitor Comms - This unit 'camper' is 7REDACTEDC
+#  - "5REDACTED8"   # MAC of the monitor ESP32
+#  - "DREDACTEDC"   # MAC of the screen ESP32
+# --------------------------------------------------
+espnow:
+  channel: 6
+  id: espnow_component
+  peers:   
+    - "DREDACTEDC"   # MAC of the screen ESP32
+  on_receive: 
+    then:
+      - lambda: |-
+          char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+          char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+          ESP_LOGD("espnow", "Recieved from %s to %s. RSSI: %ddBm",
+                  format_mac_addr_upper(info.src_addr, src_mac),
+                  format_mac_addr_upper(info.des_addr, des_mac),
+                  info.rx_ctrl->rssi);
+
+packet_transport:
+  - platform: espnow
+    id: ptrans_camper_to_screen
+    # update_interval: 10s
+    espnow_id: espnow_component
+    peer_address: "DREDACTEDC"   # MAC of the screen ESP32
+    encryption: "REDACTED"
+    sensors:
+      - panel_temp
+      - panel_humid
+      - area_light_template
+      - inside_fan_template
+      - mode_template
+      - outside_temp
+  - platform: espnow
+    id: ptrans_screen_to_camper
+    providers: 
+      - name: o-camperscreen
+        encryption: "REDACTED"
+
+# --------------------------------------------------
+# Climate Control
+# --------------------------------------------------
+climate:
+  - platform: thermostat
+    name: "Panel Fan Thermostat"
+    sensor: panel_temp
+    min_cooling_off_time: 60s
+    min_cooling_run_time: 120s
+    min_idle_time: 60s
+    cool_action:
+      - output.turn_on: panel_fan
+    idle_action:
+      - output.turn_off: panel_fan
+    default_preset: Quiet
+    visual:
+      max_temperature: 105
+      min_temperature: 60
+    preset:
+      - name: Quiet
+        default_target_temperature_high: 90
+    web_server:
+      sorting_group_id: controls
+      sorting_weight: 10
