@@ -31,8 +31,7 @@ sensor:
     remote_id: inside_fan_template
     name: "Inside Fan"
 
-
-This exposes the fan speed as a 0–100% float, which the UI displays.
+This exposes the fan speed as a 0–100% float, which the UI displays. However... since ESPHome has some quirks in how fan speed and light levels work (you'd think setting the levels to 0 would turn them off? Nope!), the code also sends the fan and light state as 0 or 1 (off or on), so a tap in the middle of the remote screen toggles the item.
 
 ## Fan & Light Control Logic
 Both the fan and light are driven by LEDC PWM outputs:
@@ -58,7 +57,6 @@ System Architecture
 |   ESP32 Screen Device     |
 |  (LCD UI, remote display) |
 +---------------------------+
-
 
 The screen device acts as a remote dashboard, mirroring the state of some of the main controller objects.
 
