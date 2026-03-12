@@ -1,23 +1,23 @@
-O-Camper ESPHome Controller
+# O-Camper ESPHome Controller
 A modular ESP32-powered control and display system for campers. This isnt much different than a lot of camper controllers people have built, but I do use ESPNow to sync with a remote LCD.
 
 The O-Camper project is a custom ESPHome-based control system designed for campers. It provides a clean, responsive web interface, synchronized fan and lighting control, and a flexible communication layer between the camper and a remote monitoring devices (see my other projects).
 This repository contains the firmware for the main camper controller.
 
-Features
-Fan Control
+## Features
+### Fan Control
 - Variable-speed PWM fan output
 - Remote fan speed sync via packet_transport
 - Smooth speed adjustments in 0–100% increments
-Lighting Control
+### Lighting Control
 - Monochromatic LED dimming via PWM
 - Remote brightness sync
 - UI feedback for current light level
-Packet Transport Communication
+### Packet Transport Communication
 - ESPHome-native messaging between nodes
 - Screen node receives live updates from main controller
 - No MQTT or external cloud required
-Hardware-Friendly
+### Hardware-Friendly
 - ESP32 DevKit or equivalent
 - LEDC PWM outputs for fan and lighting
 
@@ -34,7 +34,7 @@ sensor:
 
 This exposes the fan speed as a 0–100% float, which the UI displays.
 
-Fan & Light Control Logic
+## Fan & Light Control Logic
 Both the fan and light are driven by LEDC PWM outputs:
 fan:
   - platform: speed
@@ -62,11 +62,11 @@ System Architecture
 
 The screen device acts as a remote dashboard, mirroring the state of some of the main controller objects.
 
-Requirements
+## Requirements
 - ESPHome 
 - PWM-capable fan and LED driver
 
-Getting Started (if youre using this and the lcd remote node)
+## Getting Started (if youre using this and the lcd remote node)
 - Clone this repository.
 - Add your Wi-Fi credentials to secrets.yaml, and set up your mac addresses and passwords. (look for REDACTED in the code)
 - Flash the remote screen device firmware.
