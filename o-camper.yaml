@@ -78,7 +78,7 @@ fan:
     name: "Inside Fan"
     id: inside_fan
     restore_mode: ALWAYS_OFF
-    speed_count: 100
+    speed_count: 10
     web_server:
       sorting_group_id: controls
       sorting_weight: 12
@@ -112,10 +112,10 @@ output:
 # --------------------------------------------------
 # Sensors
 # 
-# [17:59:33.343][C][gpio.one_wire:088]:     0x6a0b24xx8156e628 (DS18B20)
-# [17:59:33.351][C][gpio.one_wire:088]:     0xfb0b2513b6xx7628 (DS18B20)
-# [17:59:33.351][C][gpio.one_wire:088]:     0xa60b2xx3d413ee28 (DS18B20)
-# [17:59:33.351][C][gpio.one_wire:088]:     0xcd0b2373cxx10528 (DS18B20)
+# [17:59:33.343][C][gpio.one_wire:088]:      (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:      (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:      (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:      (DS18B20)
 # --------------------------------------------------
 sensor:
   - platform: aht10
@@ -139,7 +139,7 @@ sensor:
   - platform: dallas_temp
     name: "Outside Temp"
     id: outside_temp
-    address: 0xcd0b23xxcf410528
+    address: REDACTED
     update_interval: 30s
     unit_of_measurement: "°F"
     filters:
@@ -150,7 +150,7 @@ sensor:
   - platform: dallas_temp
     name: "Inside Temp"
     id: inside_temp
-    address: 0xa6xx2373d413ee28
+    address: REDACTED
     update_interval: 30s
     unit_of_measurement: "°F"
     filters:
@@ -203,21 +203,43 @@ sensor:
         return 0.0;
       }
   - platform: template
-    name: "Inside Fan State"
-    id: inside_fan_template
+    name: "Inside Fan Level"
+    id: fan_level_template
     update_interval: 30s
     internal: True
     lambda: |-
       float current_fan = id(inside_fan).speed * 100;
       return current_fan;
   - platform: template
-    name: "Area Light State"
-    id: area_light_template
+    name: "Inside Fan"
+    id: fan_template
+    update_interval: 30s
+    internal: True
+    lambda: |-
+      if (id(inside_fan).state) {
+        return(1);
+      } else {
+        return(0);
+      }
+  - platform: template
+    name: "Area Light Level"
+    id: light_level_template
     update_interval: 30s
     internal: True
     lambda: |-
       float current_light = id(area_light).current_values.get_brightness() * 100;
       return current_light;
+  - platform: template
+    name: "Area Light"
+    id: remote_light_template
+    update_interval: 30s
+    internal: True
+    lambda: |-
+      if (id(area_light).current_values.is_on()) {
+        return(1);
+      } else {
+        return(0);
+      }
   - platform: template
     name: "Camper Mode State"
     id: mode_template
@@ -247,7 +269,7 @@ sensor:
       # Optional smoothing
       - sliding_window_moving_average:
           window_size: 10
-          send_every: 1
+          send_every: 8
   - platform: adc
     pin: GPIO39
     id: main_power_voltage_raw
@@ -258,7 +280,7 @@ sensor:
       - multiply: 9.2
       - sliding_window_moving_average:
           window_size: 10
-          send_every: 1
+          send_every: 8
   - platform: packet_transport
     transport_id: ptrans_screen_to_camper
     provider: o-camperscreen
@@ -269,58 +291,64 @@ sensor:
     on_value:
       - lambda: |-
           int command = (int)x;
-          // ESP_LOGD("packet_transport", "Received command: %d", command);
-          // Handle the command as needed, e.g. change mode or toggle light
           float current_light = id(area_light).current_values.get_brightness();
           float current_fan = id(inside_fan).speed;
 
           if (command == 1) {
-            ESP_LOGD("screen_cmd", "Fan UP.");
-            auto call = id(inside_fan).turn_on();
-            float new_fan = current_fan + 10;
-            if (new_fan > 100) new_fan = 100;
-            call.set_speed(new_fan);
-            call.perform();
-          } else if (command == 2) {
-            ESP_LOGD("screen_cmd", "Fan DOWN.");
-            float new_fan = current_fan - 10;
-            if (new_fan > 0) {
+              ESP_LOGD("screen_cmd", "Fan UP.");
               auto call = id(inside_fan).turn_on();
+              float new_fan = current_fan + 1;
+              if (new_fan > 10) new_fan = 10;
               call.set_speed(new_fan);
               call.perform();
-            }
-            if (new_fan <= 0) {
-              new_fan = 0;
-              auto call = id(inside_fan).turn_off();
-              call.set_speed(new_fan);
-              call.perform();
-            }
+          } else if (command == 2) {
+              ESP_LOGD("screen_cmd", "Fan DOWN.");
+              float new_fan = current_fan - 1;
+              if (new_fan > 0) {
+                auto call = id(inside_fan).turn_on();
+                call.set_speed(new_fan);
+                call.perform();
+              }
+              if (new_fan <= 0) {
+                new_fan = 0;
+                auto call = id(inside_fan).turn_off();
+                call.set_speed(new_fan);
+                call.perform();
+              }
           } else if (command == 3) {
-            ESP_LOGD("screen_cmd", "Light INCREASE.");
-            float new_light = current_light + 0.1f;
-            auto call = id(area_light).turn_on();
-            if (new_light > 1.0f) new_light = 1.0f;
-            call.set_brightness(new_light);
-            call.perform();
+              ESP_LOGD("screen_cmd", "Fan TOGGLE.");
+              auto call = id(inside_fan).toggle();
+              call.perform();
           } else if (command == 4) {
-            ESP_LOGD("screen_cmd", "Light DECREASE.");
-            float new_light = current_light - 0.1f;
-            if (new_light > 0.0f) {
+              ESP_LOGD("screen_cmd", "Light INCREASE.");
+              float new_light = current_light + 0.1f;
               auto call = id(area_light).turn_on();
+              if (new_light > 1.0f) new_light = 1.0f;
               call.set_brightness(new_light);
               call.perform();
-            }
-            if (new_light <= 0.0f) {
-              auto call = id(area_light).turn_on();
-              new_light = 0.0001f;
-              call.set_brightness(new_light);
-              call.perform();
-            }
           } else if (command == 5) {
-            ESP_LOGD("screen_cmd", "Mode CHANGE.");
-            auto call = id(mode_selector).make_call();
-            call.select_next(true);
-            call.perform();
+              ESP_LOGD("screen_cmd", "Light DECREASE.");
+              float new_light = current_light - 0.1f;
+              if (new_light > 0.0f) {
+                auto call = id(area_light).turn_on();
+                call.set_brightness(new_light);
+                call.perform();
+              }
+              if (new_light <= 0.0f) {
+                auto call = id(area_light).turn_on();
+                new_light = 0.0001f;
+                call.set_brightness(new_light);
+                call.perform();
+              }
+          } else if (command == 6) {
+              ESP_LOGD("screen_cmd", "Light TOGGLE.");
+              auto call = id(area_light).toggle();
+              call.perform();
+          } else if (command == 7) {
+              ESP_LOGD("screen_cmd", "Mode CHANGE.");
+              auto call = id(mode_selector).make_call();
+              call.select_next(true);
+              call.perform();
           } else {
             // ESP_LOGD("screen_cmd", "Commanded: Unknown command or No Command.");
           }
@@ -415,7 +443,7 @@ web_server:
   ota: False
   auth:
     username: camper
-    password: Admin.rbush2
+    password: REDACTED
   sorting_groups:
     - id: environment
       name: "Environment"
@@ -428,39 +456,36 @@ web_server:
       sorting_weight: 30
 
 # --------------------------------------------------
-# Monitor Comms - This unit 'camper' is 7REDACTEDC
-#  - "5REDACTED8"   # MAC of the monitor ESP32
-#  - "DREDACTEDC"   # MAC of the screen ESP32
+# Monitor Comms - This unit 'camper' is REDACTED
+#  - "REDACTED"   # MAC of the monitor ESP32
+#  - "REDACTED"   # MAC of the screen ESP32
 # --------------------------------------------------
 espnow:
   channel: 6
   id: espnow_component
   peers:   
-    - "DREDACTEDC"   # MAC of the screen ESP32
-  on_receive: 
-    then:
-      - lambda: |-
-          char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
-          char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
-          ESP_LOGD("espnow", "Recieved from %s to %s. RSSI: %ddBm",
-                  format_mac_addr_upper(info.src_addr, src_mac),
-                  format_mac_addr_upper(info.des_addr, des_mac),
-                  info.rx_ctrl->rssi);
+    - "REDACTED"   # MAC of the screen ESP32
 
 packet_transport:
   - platform: espnow
     id: ptrans_camper_to_screen
     # update_interval: 10s
     espnow_id: espnow_component
-    peer_address: "DREDACTEDC"   # MAC of the screen ESP32
+    peer_address: "REDACTED"   # MAC of the screen ESP32
     encryption: "REDACTED"
     sensors:
+      - outside_temp
       - panel_temp
       - panel_humid
-      - area_light_template
-      - inside_fan_template
+      - light_level_template
+      - remote_light_template
+      - fan_level_template
+      - fan_template
       - mode_template
-      - outside_temp
+      - p_window_template
+      - d_window_template
+      - rear_door_template
+      - side_door_template
   - platform: espnow
     id: ptrans_screen_to_camper
     providers: 
