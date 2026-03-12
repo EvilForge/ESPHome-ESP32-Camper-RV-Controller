@@ -45,21 +45,6 @@ light:
     id: area_light
     output: light_pwm
 
-System Architecture
-+---------------------------+
-|   Main Camper Controller  |
-|  (sensors, logic, PWM)    | <-- --> Home Assistant 
-+---------------------------+
-             ↑
-             | Packet Transport
-             ↓
-+---------------------------+
-|   ESP32 Screen Device     |
-|  (LCD UI, remote display) |
-+---------------------------+
-
-The screen device acts as a remote dashboard, mirroring the state of some of the main controller objects.
-
 ## Requirements
 - ESPHome 
 - PWM-capable fan and LED driver
