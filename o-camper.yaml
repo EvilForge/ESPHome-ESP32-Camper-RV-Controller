@@ -38,7 +38,10 @@ wifi:
 
   ap:
     ssid: "O-Camper Fallback Hotspot"
-    password: "REDACTED"
+    password: !secret wifi_camper_pass
+    ap_timeout: 10s
+    
+  reboot_timeout: 0s
 
 captive_portal:
 
@@ -68,6 +71,12 @@ select:
     web_server:
       sorting_group_id: controls
       sorting_weight: 20
+
+globals:
+  - id: panel_setpoint
+    type: int
+    initial_value: "95"
+    restore_value: true
 
 # --------------------------------------------------
 # Outputs / Lights / Switches
@@ -109,13 +118,19 @@ output:
     id: panel_fan
     pin: GPIO26
 
+switch:
+  - platform: output
+    name: "Panel Fan"
+    output: panel_fan
+    id: panel_fan_switch   
+
 # --------------------------------------------------
 # Sensors
 # 
-# [17:59:33.343][C][gpio.one_wire:088]:      (DS18B20)
-# [17:59:33.351][C][gpio.one_wire:088]:      (DS18B20)
-# [17:59:33.351][C][gpio.one_wire:088]:      (DS18B20)
-# [17:59:33.351][C][gpio.one_wire:088]:      (DS18B20)
+# [17:59:33.343][C][gpio.one_wire:088]:     0x6REDACTED28 (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:     0xfb0REDACTED28 (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:     0xa6REDACTED28 (DS18B20)
+# [17:59:33.351][C][gpio.one_wire:088]:     0xcd0REDACTED8 (DS18B20)
 # --------------------------------------------------
 sensor:
   - platform: aht10
@@ -130,6 +145,14 @@ sensor:
       web_server:
         sorting_group_id: environment
         sorting_weight: 13
+      on_value: 
+        then:
+          - lambda: |-
+              if (x > id(panel_setpoint)) {
+                id(panel_fan).turn_on();
+              } else {
+                id(panel_fan).turn_off();
+              }
     humidity:
       name: "Panel Humidity"
       id: panel_humid
@@ -139,8 +162,8 @@ sensor:
   - platform: dallas_temp
     name: "Outside Temp"
     id: outside_temp
-    address: REDACTED
-    update_interval: 30s
+    address: 0xcdREDACTED8
+    update_interval: 60s
     unit_of_measurement: "°F"
     filters:
       - lambda: return x * 9.0 / 5.0 + 32.0;
@@ -150,8 +173,8 @@ sensor:
   - platform: dallas_temp
     name: "Inside Temp"
     id: inside_temp
-    address: REDACTED
-    update_interval: 30s
+    address: 0xa6REDACTED8
+    update_interval: 60s
     unit_of_measurement: "°F"
     filters:
       - lambda: return x * 9.0 / 5.0 + 32.0;
@@ -161,7 +184,7 @@ sensor:
   - platform: template
     name: "Rear Door State"
     id: rear_door_template
-    update_interval: 30s
+    update_interval: 10s
     internal: True
     lambda: |- 
       if (id(rear_door).state) {
@@ -172,7 +195,7 @@ sensor:
   - platform: template
     name: "Side Door State"
     id: side_door_template
-    update_interval: 30s
+    update_interval: 10s
     internal: True
     lambda: |- 
       if (id(side_door).state) {
@@ -183,7 +206,7 @@ sensor:
   - platform: template
     name: "Driver Window State"
     id: d_window_template
-    update_interval: 30s
+    update_interval: 10s
     internal: True
     lambda: |- 
       if (id(d_window).state) {
@@ -194,7 +217,7 @@ sensor:
   - platform: template
     name: "Pass Window State"
     id: p_window_template
-    update_interval: 30s
+    update_interval: 10s
     internal: True
     lambda: |- 
       if (id(p_window).state) {
@@ -205,16 +228,20 @@ sensor:
   - platform: template
     name: "Inside Fan Level"
     id: fan_level_template
-    update_interval: 30s
+    update_interval: 1s
     internal: True
+    filters: 
+      - delta: 0.5
     lambda: |-
       float current_fan = id(inside_fan).speed * 100;
       return current_fan;
   - platform: template
     name: "Inside Fan"
     id: fan_template
-    update_interval: 30s
+    update_interval: 1s
     internal: True
+    filters: 
+      - delta: 0.5
     lambda: |-
       if (id(inside_fan).state) {
         return(1);
@@ -224,16 +251,26 @@ sensor:
   - platform: template
     name: "Area Light Level"
     id: light_level_template
-    update_interval: 30s
+    update_interval: 1s
     internal: True
+    filters: 
+      - delta: 0.5
     lambda: |-
       float current_light = id(area_light).current_values.get_brightness() * 100;
       return current_light;
   - platform: template
+    name: "Panel Setpoint"
+    id: panel_setpoint_template
+    update_interval: 60s
+    lambda: |-
+      return id(panel_setpoint);    
+  - platform: template
     name: "Area Light"
     id: remote_light_template
-    update_interval: 30s
+    update_interval: 1s
     internal: True
+    filters: 
+      - delta: 0.5
     lambda: |-
       if (id(area_light).current_values.is_on()) {
         return(1);
@@ -243,7 +280,7 @@ sensor:
   - platform: template
     name: "Camper Mode State"
     id: mode_template
-    update_interval: 30s
+    update_interval: 5s
     internal: True
     lambda: |- 
       std::string mode = id(mode_selector).current_option();
@@ -263,7 +300,7 @@ sensor:
     id: appliance_voltage_raw
     name: "Camera Voltage"
     attenuation: 12db
-    update_interval: 10s
+    update_interval: 15s
     filters:
       - multiply: 9.2
       # Optional smoothing
@@ -275,7 +312,7 @@ sensor:
     id: main_power_voltage_raw
     name: "Main Power Voltage"
     attenuation: 12db
-    update_interval: 10s
+    update_interval: 15s
     filters:
       - multiply: 9.2
       - sliding_window_moving_average:
@@ -293,7 +330,6 @@ sensor:
           int command = (int)x;
           float current_light = id(area_light).current_values.get_brightness();
           float current_fan = id(inside_fan).speed;
-
           if (command == 1) {
               ESP_LOGD("screen_cmd", "Fan UP.");
               auto call = id(inside_fan).turn_on();
@@ -301,6 +337,8 @@ sensor:
               if (new_fan > 10) new_fan = 10;
               call.set_speed(new_fan);
               call.perform();
+              id(fan_template).publish_state(id(inside_fan).state);
+              id(fan_level_template).publish_state(new_fan/10);
           } else if (command == 2) {
               ESP_LOGD("screen_cmd", "Fan DOWN.");
               float new_fan = current_fan - 1;
@@ -308,17 +346,22 @@ sensor:
                 auto call = id(inside_fan).turn_on();
                 call.set_speed(new_fan);
                 call.perform();
+                id(fan_template).publish_state(id(inside_fan).state);
+                id(fan_level_template).publish_state(new_fan/10);
               }
               if (new_fan <= 0) {
                 new_fan = 0;
                 auto call = id(inside_fan).turn_off();
                 call.set_speed(new_fan);
                 call.perform();
+                id(fan_template).publish_state(id(inside_fan).state);
+                id(fan_level_template).publish_state(new_fan/10);
               }
           } else if (command == 3) {
               ESP_LOGD("screen_cmd", "Fan TOGGLE.");
               auto call = id(inside_fan).toggle();
               call.perform();
+              id(fan_template).publish_state(id(inside_fan).state);
           } else if (command == 4) {
               ESP_LOGD("screen_cmd", "Light INCREASE.");
               float new_light = current_light + 0.1f;
@@ -352,6 +395,83 @@ sensor:
           } else {
             // ESP_LOGD("screen_cmd", "Commanded: Unknown command or No Command.");
           }
+  # - platform: packet_transport
+  #   transport_id: ptrans_screen_to_camper
+  #   provider: o-camperscreen2
+  #   id: remote_command2_int
+  #   remote_id: command_int
+  #   name: "Screen Command"
+  #   internal: True
+  #   on_value:
+  #     - lambda: |-
+  #         int command = (int)x;
+  #         float current_light = id(area_light).current_values.get_brightness();
+  #         float current_fan = id(inside_fan).speed;
+  #         if (command == 1) {
+  #             ESP_LOGD("screen_cmd2", "Fan UP.");
+  #             auto call = id(inside_fan).turn_on();
+  #             float new_fan = current_fan + 1;
+  #             if (new_fan > 10) new_fan = 10;
+  #             call.set_speed(new_fan);
+  #             call.perform();
+  #             id(fan_template).publish_state(id(inside_fan).state);
+  #             id(fan_level_template).publish_state(new_fan/10);
+  #         } else if (command == 2) {
+  #             ESP_LOGD("screen_cmd2", "Fan DOWN.");
+  #             float new_fan = current_fan - 1;
+  #             if (new_fan > 0) {
+  #               auto call = id(inside_fan).turn_on();
+  #               call.set_speed(new_fan);
+  #               call.perform();
+  #               id(fan_template).publish_state(id(inside_fan).state);
+  #               id(fan_level_template).publish_state(new_fan/10);
+  #             }
+  #             if (new_fan <= 0) {
+  #               new_fan = 0;
+  #               auto call = id(inside_fan).turn_off();
+  #               call.set_speed(new_fan);
+  #               call.perform();
+  #               id(fan_template).publish_state(id(inside_fan).state);
+  #               id(fan_level_template).publish_state(new_fan/10);
+  #             }
+  #         } else if (command == 3) {
+  #             ESP_LOGD("screen_cmd2", "Fan TOGGLE.");
+  #             auto call = id(inside_fan).toggle();
+  #             call.perform();
+  #             id(fan_template).publish_state(id(inside_fan).state);
+  #         } else if (command == 4) {
+  #             ESP_LOGD("screen_cmd2", "Light INCREASE.");
+  #             float new_light = current_light + 0.1f;
+  #             auto call = id(area_light).turn_on();
+  #             if (new_light > 1.0f) new_light = 1.0f;
+  #             call.set_brightness(new_light);
+  #             call.perform();
+  #         } else if (command == 5) {
+  #             ESP_LOGD("screen_cmd2", "Light DECREASE.");
+  #             float new_light = current_light - 0.1f;
+  #             if (new_light > 0.0f) {
+  #               auto call = id(area_light).turn_on();
+  #               call.set_brightness(new_light);
+  #               call.perform();
+  #             }
+  #             if (new_light <= 0.0f) {
+  #               auto call = id(area_light).turn_on();
+  #               new_light = 0.0001f;
+  #               call.set_brightness(new_light);
+  #               call.perform();
+  #             }
+  #         } else if (command == 6) {
+  #             ESP_LOGD("screen_cmd2", "Light TOGGLE.");
+  #             auto call = id(area_light).toggle();
+  #             call.perform();
+  #         } else if (command == 7) {
+  #             ESP_LOGD("screen_cmd2", "Mode CHANGE.");
+  #             auto call = id(mode_selector).make_call();
+  #             call.select_next(true);
+  #             call.perform();
+  #         } else {
+  #           // ESP_LOGD("screen_cmd2", "Commanded: Unknown command or No Command.");
+  #         }
 
 binary_sensor:
   - platform: gpio
@@ -438,12 +558,12 @@ web_server:
   port: 80
   version: 3
   include_internal: False
-  local: False
+  local: True
   log: True
   ota: False
   auth:
-    username: camper
-    password: REDACTED
+    username: !secret web_camper_acct
+    password: !secret wifi_camper_pass
   sorting_groups:
     - id: environment
       name: "Environment"
@@ -459,20 +579,22 @@ web_server:
 # Monitor Comms - This unit 'camper' is REDACTED
 #  - "REDACTED"   # MAC of the monitor ESP32
 #  - "REDACTED"   # MAC of the screen ESP32
+#  - "REDACTED"   # MAC of the screen2 ESP32
 # --------------------------------------------------
 espnow:
   channel: 6
   id: espnow_component
   peers:   
     - "REDACTED"   # MAC of the screen ESP32
+    # - "REDACTED"   # MAC of the screen2 ESP32
 
 packet_transport:
   - platform: espnow
     id: ptrans_camper_to_screen
-    # update_interval: 10s
+    update_interval: 5s
     espnow_id: espnow_component
-    peer_address: "REDACTED"   # MAC of the screen ESP32
-    encryption: "REDACTED"
+    peer_address: "REDACTED"   # MAC of the o-camperscreen ESP32
+    encryption: !secret pkt_transport_pass
     sensors:
       - outside_temp
       - panel_temp
@@ -486,33 +608,31 @@ packet_transport:
       - d_window_template
       - rear_door_template
       - side_door_template
+      - panel_setpoint_template
   - platform: espnow
     id: ptrans_screen_to_camper
     providers: 
       - name: o-camperscreen
-        encryption: "REDACTED"
-
-# --------------------------------------------------
-# Climate Control
-# --------------------------------------------------
-climate:
-  - platform: thermostat
-    name: "Panel Fan Thermostat"
-    sensor: panel_temp
-    min_cooling_off_time: 60s
-    min_cooling_run_time: 120s
-    min_idle_time: 60s
-    cool_action:
-      - output.turn_on: panel_fan
-    idle_action:
-      - output.turn_off: panel_fan
-    default_preset: Quiet
-    visual:
-      max_temperature: 105
-      min_temperature: 60
-    preset:
-      - name: Quiet
-        default_target_temperature_high: 90
-    web_server:
-      sorting_group_id: controls
-      sorting_weight: 10
+        encryption: !secret pkt_transport_pass
+      # - name: o-camperscreen2
+      #   encryption: !secret pkt_transport_pass
+  # - platform: espnow
+  #   id: ptrans_camper_to_screen2
+  #   update_interval: 5s
+  #   espnow_id: espnow_component
+  #   peer_address: "REDACTED"   # MAC of the o-camperscreen2 ESP32
+  #   encryption: !secret pkt_transport_pass
+  #   sensors:
+  #     - outside_temp
+  #     - panel_temp
+  #     - panel_humid
+  #     - light_level_template
+  #     - remote_light_template
+  #     - fan_level_template
+  #     - fan_template
+  #     - mode_template
+  #     - p_window_template
+  #     - d_window_template
+  #     - rear_door_template
+  #     - side_door_template
+  #     - panel_setpoint_template
